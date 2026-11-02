@@ -1,0 +1,47 @@
+# Git ignore untuk Skinly Backend
+
+# Environment & secrets
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Uploads (file foto pengguna)
+uploads/
+
+# ML Model (binary besar, jangan masuk repo)
+app/ml/skin_model.keras
+app/ml/skin_model.h5
+app/ml/checkpoint_*.keras
+app/ml/evaluation_report_*.txt
+
+# Dataset (tidak masuk repo karena besar)
+dataset/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

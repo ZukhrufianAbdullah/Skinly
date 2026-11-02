@@ -1,0 +1,54 @@
+# Root .gitignore for Skinly Project
+
+# Antigravity / Agents config
+.agents/
+.gemini/
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Environment variables & secrets
+.env
+*.env
+*.env.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Python / Backend ignores (in addition to backend/.gitignore)
+__pycache__/
+*.py[cod]
+*$py.class
+backend/.env
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/app/ml/skin_model.keras
+backend/app/ml/skin_model.h5
+backend/app/ml/checkpoint_*.keras
+backend/app/ml/evaluation_report_*.txt
+backend/dataset/
+backend/.pytest_cache/
+backend/htmlcov/
+backend/.coverage
+
+# Flutter / Mobile ignores (in addition to mobile/.gitignore)
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/.pub-cache/
+mobile/.pub/
+mobile/build/
+mobile/android/app/debug/
+mobile/android/app/profile/
+mobile/android/app/release/
+mobile/android/.gradle/
+mobile/ios/Flutter/.last_build_id
