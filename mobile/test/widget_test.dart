@@ -12,6 +12,7 @@ import 'package:skinly/core/widgets/skinly_text_field.dart';
 import 'package:skinly/features/auth/domain/user.dart';
 import 'package:skinly/features/auth/data/auth_storage.dart';
 import 'package:skinly/features/scan/domain/scan_result.dart';
+import 'package:skinly/core/utils/date_formatter.dart';
 
 void main() {
   setUpAll(() {
@@ -287,6 +288,33 @@ void main() {
 
       await storage.setSeenOnboarding(true);
       expect(await storage.hasSeenOnboarding(), isTrue);
+    });
+  });
+
+  group('DateFormatter Tests', () {
+    test('formatFull formats date with time without throwing', () {
+      final dt = DateTime(2026, 11, 16, 19, 30);
+      final formatted = DateFormatter.formatFull(dt);
+      expect(formatted, contains('2026'));
+      expect(formatted, contains('16'));
+      expect(formatted, contains('19:30'));
+    });
+
+    test('formatShort formats date without throwing', () {
+      final dt = DateTime(2026, 11, 16);
+      final formatted = DateFormatter.formatShort(dt);
+      expect(formatted, contains('2026'));
+      expect(formatted, contains('16'));
+    });
+
+    test('formatRelative returns appropriate labels', () {
+      final now = DateTime.now();
+      expect(DateFormatter.formatRelative(now), 'Baru saja');
+      expect(DateFormatter.formatRelative(now.subtract(const Duration(minutes: 5))), '5 menit lalu');
+      expect(DateFormatter.formatRelative(now.subtract(const Duration(hours: 3))), '3 jam lalu');
+      expect(DateFormatter.formatRelative(now.subtract(const Duration(days: 2))), '2 hari lalu');
+      final past = now.subtract(const Duration(days: 10));
+      expect(DateFormatter.formatRelative(past), contains(past.year.toString()));
     });
   });
 }

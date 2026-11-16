@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Inisialisasi locale data Bahasa Indonesia untuk intl (DateFormat)
+  await initializeDateFormatting('id_ID', null);
+  await initializeDateFormatting('id', null);
 
   // Kunci orientasi ke Portrait untuk kenyamanan pemindaian wajah
   await SystemChrome.setPreferredOrientations([

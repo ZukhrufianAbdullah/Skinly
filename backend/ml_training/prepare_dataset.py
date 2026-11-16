@@ -369,8 +369,21 @@ def main() -> None:
     args = parser.parse_args()
 
     dest = Path(args.dest)
-    if args.source:
-        prepare([Path(item) for item in args.source], dest, args.clean)
+    source_paths = [Path(item) for item in args.source] if args.source else []
+    if not source_paths and not (args.check_leak or args.dedupe):
+        # Auto-deteksi folder dataset bawaan proyek jika --source tidak ditentukan
+        for candidate in [
+            Path("../Oily-Dry-Normal-Combination-Skin-Types"),
+            Path("Oily-Dry-Normal-Combination-Skin-Types"),
+            Path("../../Oily-Dry-Normal-Combination-Skin-Types"),
+        ]:
+            if candidate.is_dir():
+                print(f"Menggunakan dataset bawaan proyek: {candidate.resolve()}")
+                source_paths = [candidate]
+                break
+
+    if source_paths:
+        prepare(source_paths, dest, args.clean)
         if not args.no_dedupe:
             dedupe_dataset(dest)
         if not args.no_check_leak:

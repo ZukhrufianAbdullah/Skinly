@@ -325,6 +325,17 @@ def train(args: argparse.Namespace) -> None:
     from sklearn.metrics import classification_report, confusion_matrix, precision_recall_fscore_support
 
     dataset_dir = Path(args.dataset_dir).resolve()
+    if not dataset_dir.is_dir():
+        for candidate in [
+            Path("../Oily-Dry-Normal-Combination-Skin-Types"),
+            Path("Oily-Dry-Normal-Combination-Skin-Types"),
+            Path("../../Oily-Dry-Normal-Combination-Skin-Types"),
+        ]:
+            if candidate.is_dir():
+                logger.info("Dataset di '%s' tidak ditemukan. Menggunakan fallback: %s", dataset_dir, candidate.resolve())
+                dataset_dir = candidate.resolve()
+                break
+
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
