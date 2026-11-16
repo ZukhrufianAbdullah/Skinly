@@ -32,9 +32,13 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 backend/app/ml/skin_model.keras
 backend/app/ml/skin_model.h5
+backend/app/ml/*.keras
 backend/app/ml/checkpoint_*.keras
 backend/app/ml/evaluation_report_*.txt
+backend/app/ml/training_summary_*.json
+backend/app/ml_effnetb0/
 backend/dataset/
+backend/backups/
 backend/.pytest_cache/
 backend/htmlcov/
 backend/.coverage

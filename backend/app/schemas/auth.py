@@ -6,6 +6,8 @@ import re
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.schemas import UTCModel
+
 
 class UserRegisterRequest(BaseModel):
     username: str = Field(..., min_length=4, max_length=50, description="Username unik minimal 4 karakter tanpa spasi")
@@ -49,7 +51,7 @@ class UserLoginRequest(BaseModel):
         return v.strip().lower()
 
 
-class UserResponse(BaseModel):
+class UserResponse(UTCModel):
     id: str
     username: str
     name: str

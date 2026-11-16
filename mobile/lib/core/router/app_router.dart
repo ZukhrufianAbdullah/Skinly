@@ -10,6 +10,7 @@ import '../../features/scan/presentation/scan_example_screen.dart';
 import '../../features/result/presentation/result_screen.dart';
 import '../../features/history/presentation/history_screen.dart';
 import '../../features/history/presentation/history_detail_screen.dart';
+import '../../features/history/domain/scan_history.dart';
 import '../../features/knowledge/presentation/knowledge_screen.dart';
 import '../../features/knowledge/presentation/article_detail_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
@@ -94,7 +95,12 @@ GoRouter buildRouter() {
                 pageBuilder: (context, state) => buildPageTransition(
                   context: context,
                   state: state,
-                  child: HistoryDetailScreen(scanId: state.pathParameters['id']!),
+                  child: HistoryDetailScreen(
+                    scanId: state.pathParameters['id']!,
+                    initialItem: state.extra is ScanHistoryItem
+                        ? state.extra as ScanHistoryItem
+                        : null,
+                  ),
                 ),
               ),
             ],

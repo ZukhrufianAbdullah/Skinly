@@ -1,11 +1,15 @@
 # Panduan Dataset untuk Training Model Skinly
 
 ## Tentang Model
-Skinly menggunakan **MobileNetV2** dengan transfer learning dari pretrained ImageNet untuk mengklasifikasikan 4 jenis kulit:
+Skinly menggunakan **MobileNetV2** (default) atau **EfficientNetB0** (opsional) dengan transfer learning dari pretrained ImageNet untuk mengklasifikasikan **4 kelas**:
 - **Normal** - Kulit seimbang
 - **Oily** - Kulit berminyak
 - **Dry** - Kulit kering
-- **Combination** - Kulit kombinasi
+- **Combination** - Kulit kombinasi (T-zone berminyak, pipi kering)
+
+Kelas **Combination** kini **dilatih langsung** sebagai kelas keempat. Keputusan akhir memakai **rule-v3**: argmax softmax atas keempat kelas. `combination_score` = probabilitas kelas combination, dan `confidence` = probabilitas kelas terpilih.
+
+> Model lama 3 kelas masih kompatibel. Jika `class_names.json` hanya berisi `dry/normal/oily`, backend otomatis memakai rule-v2 (`combination_score = 2 * min(P(dry), P(oily))`).
 
 ## Struktur Dataset
 
@@ -28,17 +32,22 @@ backend/dataset/
     └── oily/
 ```
 
+Nama split `valid` juga didukung (otomatis diperlakukan sebagai `val`), dan nama kelas boleh berhuruf besar (`Combination`, `Dry`, `Normal`, `Oily`) saat masih di folder sumber — skrip persiapan akan menormalkannya.
+
+Skrip persiapan juga mendukung **folder flat ala Roboflow**, yaitu gambar langsung berada di `train/`, `valid/`, `test/` dengan label di prefix nama file (`combination_-_xxx.jpg`, `dry_-_xxx.jpg`, dst.).
+
 ## Sumber Dataset Publik
 
-### 1. OILY-DRY-NORMAL Skin Types Dataset (Kaggle)
+### 1. Oily-Dry-Normal-Combination Skin Types Dataset (Kaggle)
 **Direkomendasikan** - Dataset sudah diberi label dan tersedia publik.
 - URL: https://www.kaggle.com/datasets/shakyadissanayake/oily-dry-and-normal-skin-types-dataset
-- Berisi 3 kelas: oily, dry, normal
-- Tambahkan kelas `combination` dari sumber lain atau buat sendiri
+- Berisi 4 kelas: oily, dry, normal, combination
+- Struktur folder: `train/`, `valid/`, `test/` masing-masing berisi `Combination/`, `Dry/`, `Normal/`, `Oily/`
 
 ### 2. Skin Type Dataset (Roboflow)
 - URL: https://universe.roboflow.com/skin-type
-- Tersedia beberapa dataset labeled untuk skin type detection
+- Struktur flat: gambar di `train/`, `valid/`, `test/` dengan label pada prefix nama file
+- Tambahan bagus untuk memperkuat kelas `combination`
 
 ### 3. ISIC Archive (dermoscopy images)
 - URL: https://www.isic-archive.com/
@@ -68,9 +77,9 @@ Foto yang DIHINDARI:
 
 | Split | Per Kelas | Total |
 |-------|-----------|-------|
-| Train | 500-1000+ | 2000-4000+ |
-| Val   | 100-200   | 400-800   |
-| Test  | 100-200   | 400-800   |
+| Train | 500-1000+ | 1500-3000+ |
+| Val   | 100-200   | 300-600   |
+| Test  | 100-200   | 300-600   |
 
 Semakin banyak data, semakin baik akurasi model. Minimal 200 gambar per kelas untuk hasil yang dapat diandalkan.
 
@@ -121,19 +130,46 @@ def split_dataset(source_dir, output_dir, ratios=(0.7, 0.15, 0.15), seed=42):
 # 1. Aktifkan environment
 conda activate skinly
 
-# 2. Pergi ke folder backend
+# 2. Install TensorFlow (tidak termasuk requirements.txt)
+pip install tensorflow==2.21.0
+
+# 3. Pergi ke folder backend
 cd backend
 
-# 3. Pastikan dataset sudah ada di backend/dataset/
-# (lihat struktur di atas)
+# 4. Siapkan dataset: gabungkan semua sumber, buang duplikat, tulis leak report
+python ml_training/prepare_dataset.py --source "C:/path/dataset-utama" "C:/path/Skin Type.v1i.multiclass" --dest dataset --clean
 
-# 4. Jalankan training
+# 4b. Periksa ulang kebocoran (opsional, prioritas test > val > train)
+python ml_training/prepare_dataset.py --check-leak --dest dataset
+
+# 5. Jalankan training (default MobileNetV2)
 python ml_training/train.py
 
-# 5. Model akan disimpan otomatis ke:
+# Opsional: atur durasi training
+python ml_training/train.py --epochs-phase1 5 --epochs-phase2 3
+
+# Opsional: coba backbone EfficientNetB0
+python ml_training/train.py --backbone efficientnetb0
+
+# Opsional: lewati kalibrasi temperature scaling
+python ml_training/train.py --no-calibration
+
+# 6. Model akan disimpan otomatis ke:
 #    backend/app/ml/skin_model.keras
 #    backend/app/ml/class_names.json
+#    backend/app/ml/model_meta.json      (backbone, preprocessing, rule_version)
+#    backend/app/ml/calibration.json     (temperature, ECE sebelum/sesudah)
+#    backend/app/ml/evaluation_report_*.txt
+#    backend/app/ml/training_summary_*.json
 ```
+
+Training berjalan dua fase:
+1. **Fase 1** — base model dibekukan, hanya head klasifikasi yang dilatih.
+2. **Fase 2** — fine-tuning `30` layer terakhir dengan learning rate kecil. BatchNormalization tetap dibekukan agar stabil.
+
+Pemilihan model terbaik, early stopping, dan checkpoint memakai **macro-F1 pada val set** (bukan accuracy), sehingga kelas minoritas (mis. `oily`) tidak diabaikan.
+
+Setelah selesai, restart backend (`uvicorn app.main:app --reload`). Cek `GET /api/v1/health` dan pastikan `model_loaded: true` serta `demo_mode: false`.
 
 Training membutuhkan waktu bervariasi:
 - Tanpa GPU: 30-60 menit (tergantung ukuran dataset)
@@ -148,10 +184,13 @@ pip install scikit-learn matplotlib seaborn
 
 ## Tips Training
 
-1. **Augmentasi data**: Script sudah menyertakan augmentasi (flip, rotasi, zoom, brightness)
-2. **Transfer learning**: MobileNetV2 pretrained ImageNet sangat membantu meski dataset kecil
-3. **Early stopping**: Training otomatis berhenti jika val_accuracy tidak membaik dalam 5 epoch
-4. **Checkpoint**: Model terbaik disimpan otomatis, bukan yang terakhir
+1. **Cek kebocoran data**: selalu jalankan `--check-leak` setelah menyiapkan dataset. Gambar identik di train dan test membuat skor evaluasi palsu.
+2. **Class weighting**: diterapkan otomatis berdasarkan jumlah gambar per kelas di train.
+3. **Augmentasi data**: flip, rotasi, zoom, translasi, brightness, dan contrast diterapkan pada gambar mentah (0-255) sebelum preprocessing backbone.
+4. **Transfer learning**: MobileNetV2 pretrained ImageNet cukup ringan; EfficientNetB0 bisa dicoba jika target macro-F1 belum tercapai.
+5. **Early stopping & checkpoint**: monitor `val_macro_f1`, bukan `val_accuracy`.
+6. **Kalibrasi**: temperature scaling dicari pada val set untuk menurunkan ECE. Nilai temperature dipakai otomatis oleh `app/ml/inference.py`.
+7. **Evaluasi**: lihat `evaluation_report_*.txt` untuk classification report dan confusion matrix 4 kelas (`combination`, `dry`, `normal`, `oily`).
 
 ## Catatan Privasi
 

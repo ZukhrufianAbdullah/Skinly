@@ -1,5 +1,7 @@
 // lib/features/knowledge/domain/article.dart
 // Model domain untuk artikel edukasi
+import '../../../core/utils/date_parser.dart';
+
 class Article {
   final String id;
   final String title;
@@ -38,7 +40,7 @@ class Article {
         content: json['content'] as String?,
         coverImageUrl: json['cover_image_url'] as String?,
         readMinutes: json['read_minutes'] as int? ?? 3,
-        createdAt: DateTime.parse(json['created_at'] as String),
+        createdAt: parseServerDate(json['created_at'] as String),
       );
 }
 

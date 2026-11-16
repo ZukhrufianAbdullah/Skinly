@@ -1,0 +1,17 @@
+{
+  "backbone": "mobilenetv2",
+  "img_size": [
+    224,
+    224
+  ],
+  "preprocessing": "mobilenet_v2",
+  "classes": [
+    "combination",
+    "dry",
+    "normal",
+    "oily"
+  ],
+  "created_at": "20261116_074609",
+  "decision_rule": "argmax(softmax)",
+  "rule_version": "rule-v3"
+}

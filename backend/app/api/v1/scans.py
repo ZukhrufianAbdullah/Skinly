@@ -19,7 +19,7 @@ from app.core.database import get_db
 from app.core.config import get_settings
 from app.models.models import ScanHistory, SkinTypeInfo, User
 from app.schemas.schemas import (
-    AnalyzeResponse, ScanCreateRequest, ScanResponse, ScanListResponse
+    AnalyzeResponse, ScanCreateRequest, ScanResponse, ScanDetailResponse, ScanListResponse
 )
 from app.services.image_validator import validate_image
 from app.ml import inference
@@ -33,6 +33,54 @@ router = APIRouter(prefix="/scans", tags=["Scan"])
 
 def _get_skin_info(db: Session, skin_type: str) -> Optional[SkinTypeInfo]:
     return db.query(SkinTypeInfo).filter(SkinTypeInfo.skin_type == skin_type).first()
+
+
+def _normalize_routine(items: Optional[list], label: str) -> list[dict]:
+    """
+    Pastikan format routine selalu list of dict {step, name, detail}.
+    Data seed terbaru sudah berupa dict; ini menjaga kompatibilitas data lama.
+    """
+    if not isinstance(items, list):
+        return []
+
+    normalized: list[dict] = []
+    for index, item in enumerate(items, start=1):
+        if isinstance(item, dict):
+            normalized.append(
+                {
+                    "step": str(item.get("step", index)),
+                    "name": str(item.get("name", item.get("title", label))),
+                    "detail": str(item.get("detail", item.get("description", ""))),
+                }
+            )
+        else:
+            normalized.append(
+                {
+                    "step": str(index),
+                    "name": str(item),
+                    "detail": "",
+                }
+            )
+    return normalized
+
+
+def _normalize_products(items: Optional[list]) -> list[dict]:
+    """Pastikan format produk selalu list of dict {name, note}."""
+    if not isinstance(items, list):
+        return []
+
+    normalized: list[dict] = []
+    for item in items:
+        if isinstance(item, dict):
+            normalized.append(
+                {
+                    "name": str(item.get("name", item.get("category", str(item)))),
+                    "note": str(item.get("note", item.get("description", ""))),
+                }
+            )
+        else:
+            normalized.append({"name": str(item), "note": ""})
+    return normalized
 
 
 # ============================================================
@@ -69,15 +117,29 @@ async def analyze_skin(
     if skin_info:
         description = skin_info.description
         routine = {
-            "morning": skin_info.routine_morning,
-            "night": skin_info.routine_night,
+            "morning": _normalize_routine(skin_info.routine_morning, "Perawatan pagi"),
+            "night": _normalize_routine(skin_info.routine_night, "Perawatan malam"),
         }
-        products = [p.get("name", str(p)) for p in skin_info.recommended_products]
+        products = _normalize_products(skin_info.recommended_products)
     else:
         # Fallback jika seed belum dijalankan
         description = f"Jenis kulit {skin_type} terdeteksi."
-        routine = {"morning": ["Cuci muka", "Pelembap", "Sunscreen"], "night": ["Cuci muka", "Pelembap"]}
-        products = ["Pembersih wajah gentle", "Pelembap ringan", "Sunscreen SPF 30+"]
+        routine = {
+            "morning": [
+                {"step": "1", "name": "Cuci muka", "detail": "Gunakan pembersih wajah yang lembut."},
+                {"step": "2", "name": "Pelembap", "detail": "Pilih pelembap sesuai jenis kulit."},
+                {"step": "3", "name": "Sunscreen", "detail": "Gunakan SPF 30+ setiap pagi."},
+            ],
+            "night": [
+                {"step": "1", "name": "Cuci muka", "detail": "Bersihkan sisa makeup dan kotoran."},
+                {"step": "2", "name": "Pelembap", "detail": "Kunci kelembapan kulit sebelum tidur."},
+            ],
+        }
+        products = [
+            {"name": "Pembersih wajah gentle", "note": "Untuk membersihkan tanpa membuat kering"},
+            {"name": "Pelembap ringan", "note": "Jaga hidrasi kulit"},
+            {"name": "Sunscreen SPF 30+", "note": "Proteksi dari sinar UV"},
+        ]
 
     return AnalyzeResponse(
         skin_type=skin_type,
@@ -87,6 +149,10 @@ async def analyze_skin(
         routine=routine,
         products=products,
         demo=result["demo"],
+        raw_probabilities=result.get("raw_probabilities", {}),
+        combination_score=result.get("combination_score", 0.0),
+        is_combination=result.get("is_combination", False),
+        rule_version=result.get("rule_version", "rule-v3"),
     )
 
 
@@ -174,7 +240,7 @@ def list_scans(
 # ============================================================
 @router.get(
     "/{scan_id}",
-    response_model=ScanResponse,
+    response_model=ScanDetailResponse,
     summary="Detail riwayat scan",
 )
 def get_scan(
@@ -192,7 +258,49 @@ def get_scan(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": {"code": "NOT_FOUND", "message": "Riwayat scan tidak ditemukan."}}
         )
-    return scan
+
+    skin_type_str = scan.skin_type.value if hasattr(scan.skin_type, "value") else str(scan.skin_type)
+    skin_info = _get_skin_info(db, skin_type_str)
+
+    if skin_info:
+        description = skin_info.description
+        routine = {
+            "morning": _normalize_routine(skin_info.routine_morning, "Perawatan pagi"),
+            "night": _normalize_routine(skin_info.routine_night, "Perawatan malam"),
+        }
+        products = _normalize_products(skin_info.recommended_products)
+    else:
+        description = f"Jenis kulit {skin_type_str} terdeteksi."
+        routine = {
+            "morning": [
+                {"step": "1", "name": "Cuci muka", "detail": "Gunakan pembersih wajah yang lembut."},
+                {"step": "2", "name": "Pelembap", "detail": "Pilih pelembap sesuai jenis kulit."},
+                {"step": "3", "name": "Sunscreen", "detail": "Gunakan SPF 30+ setiap pagi."},
+            ],
+            "night": [
+                {"step": "1", "name": "Cuci muka", "detail": "Bersihkan sisa makeup dan kotoran."},
+                {"step": "2", "name": "Pelembap", "detail": "Kunci kelembapan kulit sebelum tidur."},
+            ],
+        }
+        products = [
+            {"name": "Pembersih wajah gentle", "note": "Untuk membersihkan tanpa membuat kering"},
+            {"name": "Pelembap ringan", "note": "Jaga hidrasi kulit"},
+            {"name": "Sunscreen SPF 30+", "note": "Proteksi dari sinar UV"},
+        ]
+
+    return ScanDetailResponse(
+        id=scan.id,
+        user_id=scan.user_id,
+        device_id=scan.device_id,
+        skin_type=scan.skin_type,
+        confidence=scan.confidence,
+        probabilities=scan.probabilities,
+        image_path=scan.image_path,
+        created_at=scan.created_at,
+        description=description,
+        routine=routine,
+        products=products,
+    )
 
 
 # ============================================================

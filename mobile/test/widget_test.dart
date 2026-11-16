@@ -94,6 +94,97 @@ void main() {
       expect(result.products.length, 1);
       expect(result.products.first.name, 'Teal Purifying Gel');
     });
+
+    test('ScanResult parses rule-v2 combination fields', () {
+      final json = {
+        'skin_type': 'oily',
+        'confidence': 0.425,
+        'probabilities': {
+          'normal': 0.253,
+          'dry': 0.322,
+          'oily': 0.425,
+          'combination': 0.644,
+        },
+        'raw_probabilities': {'dry': 0.322, 'normal': 0.253, 'oily': 0.425},
+        'combination_score': 0.644,
+        'is_combination': true,
+        'rule_version': 'rule-v2',
+        'description': 'Kulit berminyak.',
+        'routine': {'morning': [], 'night': []},
+        'products': [],
+        'demo': false,
+      };
+
+      final result = ScanResult.fromJson(json);
+      expect(result.skinType, 'oily');
+      expect(result.rawProbabilities['oily'], closeTo(0.425, 1e-9));
+      expect(result.combinationScore, closeTo(0.644, 1e-9));
+      expect(result.isCombination, isTrue);
+      expect(result.combinationPercent, 64);
+      expect(result.ruleVersion, 'rule-v2');
+      expect(
+        result.primaryProbabilities.keys.toSet(),
+        {'normal', 'oily', 'dry'},
+      );
+    });
+
+    test('ScanResult parses 4-class rule-v3 response', () {
+      final json = {
+        'skin_type': 'combination',
+        'confidence': 0.61,
+        'probabilities': {
+          'combination': 0.61,
+          'dry': 0.05,
+          'normal': 0.14,
+          'oily': 0.20,
+        },
+        'raw_probabilities': {
+          'combination': 0.61,
+          'dry': 0.05,
+          'normal': 0.14,
+          'oily': 0.20,
+        },
+        'combination_score': 0.61,
+        'is_combination': true,
+        'rule_version': 'rule-v3',
+        'description': 'Kulit kombinasi.',
+        'routine': {'morning': [], 'night': []},
+        'products': [],
+        'demo': false,
+      };
+
+      final result = ScanResult.fromJson(json);
+      expect(result.skinType, 'combination');
+      expect(result.skinTypeLabel, 'Kulit Kombinasi');
+      expect(result.isCombination, isTrue);
+      expect(result.ruleVersion, 'rule-v3');
+      expect(
+        result.primaryProbabilities.keys.toSet(),
+        {'combination', 'dry', 'normal', 'oily'},
+      );
+    });
+
+    test('ScanResult falls back for legacy response without rule fields', () {
+      final json = {
+        'skin_type': 'dry',
+        'confidence': 0.7,
+        'probabilities': {
+          'normal': 0.1,
+          'dry': 0.7,
+          'oily': 0.1,
+          'combination': 0.2,
+        },
+        'description': 'Kulit kering.',
+        'routine': {'morning': [], 'night': []},
+        'products': [],
+      };
+
+      final result = ScanResult.fromJson(json);
+      expect(result.combinationScore, closeTo(0.2, 1e-9));
+      expect(result.isCombination, isFalse);
+      expect(result.rawProbabilities['dry'], closeTo(0.7, 1e-9));
+      expect(result.ruleVersion, 'rule-v3');
+    });
   });
 
   group('Core Reusable Widgets Tests', () {

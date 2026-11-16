@@ -9,10 +9,12 @@ import '../../../core/widgets/skinly_dialog.dart';
 import '../../../core/widgets/skinly_mascot.dart';
 import '../data/history_repository.dart';
 import '../domain/scan_history.dart';
+import '../../scan/domain/scan_result.dart';
 
 class HistoryDetailScreen extends StatefulWidget {
   final String scanId;
-  const HistoryDetailScreen({super.key, required this.scanId});
+  final ScanHistoryItem? initialItem;
+  const HistoryDetailScreen({super.key, required this.scanId, this.initialItem});
 
   @override
   State<HistoryDetailScreen> createState() => _HistoryDetailScreenState();
@@ -28,19 +30,32 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialItem != null) {
+      _item = widget.initialItem;
+      _isLoading = false;
+    }
     _load();
   }
 
   Future<void> _load() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    if (_item == null) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
     try {
       final item = await _repo.getDetail(widget.scanId);
-      setState(() => _item = item);
+      if (mounted) {
+        setState(() {
+          _item = item;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted && _item == null) {
+        setState(() => _error = e.toString());
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -167,7 +182,7 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Kartu Utama
+          // Kartu Utama Hasil Analisis
           SkinlyCard(
             padding: const EdgeInsets.all(22),
             borderRadius: 24,
@@ -216,7 +231,147 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
                   style: AppTextStyles.caption.copyWith(color: AppColors.neutral500),
                 ),
                 const SizedBox(height: 20),
+                // Bar Probabilitas 4 Jenis Kulit (Akurat argmax 4 kelas)
                 _buildProbabilities(item),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // Karakteristik Kulit
+          SkinlyCard(
+            padding: const EdgeInsets.all(20),
+            borderRadius: 22,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.description_outlined, color: AppColors.primaryDark, size: 22),
+                    const SizedBox(width: 10),
+                    Text('Karakteristik Kulit', style: AppTextStyles.h3),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  item.description,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.textPrimary,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // Rutinitas Pagi Hari
+          SkinlyCard(
+            padding: const EdgeInsets.all(20),
+            borderRadius: 22,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.wb_sunny_rounded, color: Color(0xFFFFA000), size: 22),
+                    const SizedBox(width: 10),
+                    Text('Rutinitas Pagi Hari', style: AppTextStyles.h3),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _buildRoutineSteps(item.routineMorning),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // Rutinitas Malam Hari
+          SkinlyCard(
+            padding: const EdgeInsets.all(20),
+            borderRadius: 22,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.nightlight_round, color: Color(0xFF5C6BC0), size: 22),
+                    const SizedBox(width: 10),
+                    Text('Rutinitas Malam Hari', style: AppTextStyles.h3),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _buildRoutineSteps(item.routineNight),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // Rekomendasi Kandungan & Produk
+          if (item.products.isNotEmpty) ...[
+            SkinlyCard(
+              padding: const EdgeInsets.all(20),
+              borderRadius: 22,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.spa_rounded, color: AppColors.primaryDark, size: 22),
+                      const SizedBox(width: 10),
+                      Text('Rekomendasi Produk & Kandungan', style: AppTextStyles.h3),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: item.products.map((prod) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryBackground,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                        ),
+                        child: Text(
+                          prod.name.isNotEmpty ? prod.name : prod.toString(),
+                          style: AppTextStyles.bodyMedium.copyWith(
+                            color: AppColors.textTealDeep,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+          ],
+
+          // Disclaimer Medis
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.neutral100,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.neutral300),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.health_and_safety_outlined, color: AppColors.neutral600, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Hasil ini bersifat estimasi dan bukan diagnosis medis. Konsultasikan ke dokter spesialis kulit untuk kondisi kulit tertentu.',
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.neutral600,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -232,6 +387,72 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildRoutineSteps(List<RoutineStep> steps) {
+    if (steps.isEmpty) {
+      return Text(
+        'Tidak ada rutinitas spesifik.',
+        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.neutral500),
+      );
+    }
+
+    return Column(
+      children: List.generate(steps.length, (index) {
+        final step = steps[index];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: AppColors.primaryBackground,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.primary, width: 1.5),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  step.step.isNotEmpty ? step.step : '${index + 1}',
+                  style: AppTextStyles.caption.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primaryDark,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      step.name,
+                      style: AppTextStyles.bodyLarge.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                        fontSize: 15,
+                      ),
+                    ),
+                    if (step.detail.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        step.detail,
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: AppColors.textSecondary,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
     );
   }
 

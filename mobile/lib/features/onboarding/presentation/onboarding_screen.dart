@@ -46,11 +46,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _finishOnboarding() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('skinly_has_seen_onboarding', true);
-    if (mounted) {
-      context.go(AppRoutes.login);
+    // Simpan flag; kalau storage gagal, pengguna tetap boleh lanjut.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('skinly_has_seen_onboarding', true);
+    } catch (e) {
+      debugPrint('Onboarding: gagal menyimpan flag — $e');
+      // abaikan — jangan menahan pengguna di onboarding
     }
+    if (!mounted) return;
+    context.go(AppRoutes.login);
   }
 
   void _nextPage() {

@@ -34,6 +34,15 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+
+            // AGP 9 mengaktifkan R8 (minify) secara default untuk build release.
+            // R8 me-rename `kotlin.coroutines.Continuation` (mis. menjadi `xk`),
+            // sehingga binding JNI milik plugin Pigeon (shared_preferences_android)
+            // gagal dengan NoSuchMethodError saat runtime. Akibatnya flag
+            // onboarding & token tidak bisa dibaca/ditulis di build release.
+            // Matikan minify + resource shrinking agar semua plugin stabil.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

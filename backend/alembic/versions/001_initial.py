@@ -15,7 +15,6 @@ down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     # --- Tabel skin_type_info ---
     op.create_table(
@@ -90,12 +89,6 @@ def upgrade() -> None:
         mysql_charset="utf8mb4",
         mysql_collate="utf8mb4_unicode_ci",
     )
-
-    # Tambah index secara eksplisit (kompatibel MariaDB 10.4+)
-    op.create_index("ix_scan_history_device_id", "scan_history", ["device_id"], unique=False)
-    op.create_index("ix_scan_history_created_at", "scan_history", ["created_at"], unique=False)
-    op.create_index("ix_feedback_device_id", "feedback", ["device_id"], unique=False)
-
 
 def downgrade() -> None:
     op.drop_index("ix_feedback_device_id", table_name="feedback")

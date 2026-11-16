@@ -1,0 +1,5 @@
+# Dependensi tambahan khusus untuk training model (tidak dipakai backend runtime).
+# Install ke environment yang sama dengan backend:
+#   pip install -r ml_training/requirements-train.txt
+tensorflow==2.21.0
+scikit-learn>=1.5.0

@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     model_path: str = "app/ml/skin_model.keras"
     class_names_path: str = "app/ml/class_names.json"
 
+    # --- Kombinasi (diturunkan dari probabilitas dry vs oily) ---
+    # rule-v2: combination_score = 2 * min(P(dry), P(oily)).
+    # Jika skor >= combination_score_threshold, UI menampilkan kecenderungan kombinasi.
+    combination_score_threshold: float = 0.50
+    # Parameter lama (rule-v1) dipertahankan agar .env lama tidak error,
+    # tetapi TIDAK dipakai lagi oleh inference rule-v2.
+    combination_threshold: float = 0.10
+    combination_min_pair: float = 0.50
+
     # --- Aplikasi ---
     app_env: str = "development"
     allowed_origins: str = "*"

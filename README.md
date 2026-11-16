@@ -6,7 +6,7 @@ Skinly adalah aplikasi mobile modern berbasis **Machine Learning** yang mendetek
 
 ## 🌟 Fitur Utama
 
-- **Deteksi 4 Jenis Kulit Wajah**: Analisis klasifikasi citra wajah (*Normal, Oily, Dry, Combination*) lengkap dengan nilai akurasi (*confidence score*) dan distribusi probabilitas seluruh tipe kulit.
+- **Deteksi 4 Kelas Kulit**: Model MobileNetV2 dilatih langsung pada 4 kelas (*Normal, Oily, Dry, Combination*) dengan aturan keputusan **rule-v3** (`argmax` softmax). Respons menyertakan `confidence`, probabilitas keempat kelas, `raw_probabilities`, `combination_score` (= probabilitas kelas *combination*), `is_combination`, dan `rule_version`. Model lama 3 kelas tetap didukung lewat **rule-v2** (`combination_score = 2 × min(P(dry), P(oily))`).
 - **Validasi Kualitas Citra Otomatis**: Memastikan foto layak sebelum diproses model dengan memeriksa batas kecerahan minimum (menolak foto gelap), ketajaman (*Laplacian variance* - menolak foto blur), dan verifikasi wajah manusia (deteksi mata & hidung via Haar Cascade).
 - **Panduan Foto Scan (*Scan Example*)**: Panduan visual komparasi foto wajah yang benar vs salah (pencahayaan, posisi wajah, tanpa makeup tebal/kacamata/filter) untuk hasil optimal.
 - **Rekomendasi Skincare Lengkap**: Informasi karakteristik tipe kulit, panduan rutinitas perawatan pagi (*AM Routine*) & malam (*PM Routine*), rekomendasi bahan aktif (*Key Ingredients*), serta bahan yang perlu dihindari.
@@ -48,7 +48,7 @@ skinly/
     │   ├── core/            # Database engine, env configuration, logging
     │   ├── api/
     │   │   ├── deps.py      # Dependency injection & JWT token verification
-    │   │   └── v1/          # Endpoints: auth, scans, articles, feedback, health
+    │   │   └── v1/          # Endpoints: auth, scans, articles, feedback, health, ml
     │   ├── models/          # Model tabel database SQLAlchemy (users, scans, dll)
     │   ├── schemas/         # Skema validasi request & response (Pydantic v2)
     │   ├── services/        # Validator kualitas citra (kecerahan, blur, Haar cascade)
@@ -220,24 +220,112 @@ pytest tests/ -v
 
 ---
 
-## 🤖 FASE 2: Pelatihan Model Machine Learning (Opsional)
+## 🤖 FASE 2: Pelatihan Model Machine Learning
 
-Jika ingin melatih ulang model deteksi kulit menggunakan dataset kustom:
-1. Baca panduan lengkap di [backend/ml_training/README.md](backend/ml_training/README.md).
-2. Siapkan dataset wajah dengan struktur folder:
-   ```
-   backend/dataset/
-   ├── train/ (normal, oily, dry, combination)
-   ├── val/   (normal, oily, dry, combination)
-   └── test/  (normal, oily, dry, combination)
-   ```
-3. Jalankan script pelatihan:
-   ```bash
-   cd backend
-   python ml_training/train.py
-   ```
-4. Model terlatih akan disimpan ke `backend/app/ml/skin_model.keras`.
-5. Restart server uvicorn backend untuk memuat model baru secara otomatis.
+Model dilatih dengan **MobileNetV2 Transfer Learning** untuk **4 kelas**: `combination`, `dry`, `normal`, `oily`. Keputusan akhir memakai aturan **rule-v3** (argmax softmax). Model lama 3 kelas masih kompatibel dan otomatis memakai **rule-v2** (`combination_score = 2 × min(P(dry), P(oily))`, lihat `COMBINATION_SCORE_THRESHOLD` di `.env`).
+
+Pipeline training versi ini juga menambahkan:
+- **Class weighting** untuk menyeimbangkan kelas `combination`/`dry`/`normal`/`oily`.
+- **Augmentasi lebih kuat** (flip, rotasi, zoom, translasi, brightness, contrast).
+- **Seleksi model & early stopping berbasis macro-F1**, bukan accuracy.
+- **Kalibrasi temperature scaling** agar `confidence` lebih jujur (ECE turun).
+- **Opsi backbone** `mobilenetv2` (default) atau `efficientnetb0`.
+
+### Langkah 1: Install TensorFlow
+
+TensorFlow sengaja tidak dipasang otomatis oleh `requirements.txt`. Install dependensi training ke environment `skinly`:
+
+```bash
+conda activate skinly
+pip install -r ml_training/requirements-train.txt
+```
+
+### Langkah 2: Siapkan Dataset
+
+Dataset publik *Oily-Dry-Normal-Combination Skin Types* memiliki struktur `train/`, `valid/`, `test/` dengan folder kelas `Combination`, `Dry`, `Normal`, `Oily`. Dataset tambahan dari Roboflow (`Skin Type.v1i.multiclass`) memakai folder flat dengan label di prefix nama file. Skrip persiapan mendukung keduanya sekaligus, menggabungkan banyak sumber, membuang duplikat, dan menulis laporan kebocoran:
+
+```bash
+cd backend
+python ml_training/prepare_dataset.py \
+  --source "C:/Polinema/SEMESTER 5/PBL/archive/Oily-Dry-Normal-Combination-Skin-Types" \
+           "C:/Polinema/SEMESTER 5/PBL/Skin Type.v1i.multiclass" \
+  --dest dataset --clean
+```
+
+Deduplikasi berbasis hash MD5 otomatis berjalan dengan prioritas **test > val > train**. Hasil akhirnya harus menampilkan `Duplikat lintas split: 0 grup` dan `Duplikat dalam split: 0 grup`. Laporan lengkap tersimpan di `backend/dataset/leak_report.txt`.
+
+```
+backend/dataset/
+├── train/ (combination, dry, normal, oily)
+├── val/   (combination, dry, normal, oily)
+└── test/  (combination, dry, normal, oily)
+```
+
+### Langkah 3: Jalankan Training
+
+```bash
+python ml_training/train.py
+```
+
+Opsional, atur durasi training:
+
+```bash
+# Eksperimen cepat
+python ml_training/train.py --epochs-phase1 5 --epochs-phase2 3
+
+# Lebih lama / akurasi lebih baik
+python ml_training/train.py --epochs-phase1 15 --epochs-phase2 10
+
+# Coba backbone EfficientNetB0 ke folder terpisah agar mudah dibandingkan
+python ml_training/train.py --backbone efficientnetb0 --output-dir app/ml_effnetb0
+```
+
+Bandingkan hasil kedua model lalu salin model terbaik ke `app/ml` (`skin_model.keras`,
+`class_names.json`, `model_meta.json`, `calibration.json`).
+
+Model akhir disimpan ke:
+- `backend/app/ml/skin_model.keras`
+- `backend/app/ml/class_names.json`
+- `backend/app/ml/model_meta.json` (backbone, preprocessing, versi aturan)
+- `backend/app/ml/calibration.json` (temperature scaling + ECE)
+- laporan evaluasi (`evaluation_report_*.txt`) & ringkasan training (`training_summary_*.json`)
+
+### Langkah 4: Atur Aturan Kombinasi
+
+Dengan model 4 kelas, `combination` diprediksi langsung (rule-v3) sehingga bagian ini **opsional**. `COMBINATION_SCORE_THRESHOLD` hanya dipakai saat memuat model lama 3 kelas (rule-v2).
+
+Di `backend/.env`:
+
+```env
+# Hanya untuk model lama 3 kelas (rule-v2):
+# combination_score = 2 * min(P(dry), P(oily))
+# is_combination = true jika skor >= ambang di bawah (0.50 = kedua kelas minimal 25%)
+COMBINATION_SCORE_THRESHOLD=0.50
+
+# Parameter lama (rule-v1) TIDAK dipakai lagi, dipertahankan agar .env lama tidak error
+COMBINATION_THRESHOLD=0.10
+COMBINATION_MIN_PAIR=0.50
+```
+
+Contoh model 4 kelas: `combination=61%`, `oily=20%`, `normal=14%`, `dry=5%` → `skin_type = combination`, `confidence = 61%`, `is_combination = true`.
+
+### Langkah 5: Restart Backend
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Cek `http://localhost:8000/api/v1/health` — pastikan `model_loaded: true` dan `demo_mode: false`.
+Untuk melihat backbone, aturan kombinasi aktif, temperature, dan ringkasan evaluasi terakhir, buka `http://localhost:8000/api/v1/ml/info`.
+
+### Langkah 6: Buat Laporan Evaluasi (Opsional)
+
+```bash
+python ml_training/make_report.py --model-dir app/ml --compare-dir app/ml_effnetb0 --out ../docs/MODEL_REPORT.md
+```
+
+Laporan Markdown (model card, confusion matrix, status target, perbandingan model)
+ditulis ke `docs/MODEL_REPORT.md`. Jalankan ulang setiap selesai training.
 
 ---
 
@@ -281,27 +369,43 @@ Android Emulator memetakan `localhost` komputer host ke alamat IP khusus `10.0.2
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
 ```
 
-#### B. Pada HP Android Fisik
+#### B. Pada HP Android Fisik (Tanpa Kabel, Wi-Fi Sama)
 
-1. Sambungkan HP ke laptop/PC menggunakan kabel data USB.
-2. Aktifkan **Developer Options** (*Opsi Pengembang*) dan **USB Debugging** di pengaturan HP.
-3. Pastikan HP dan laptop terhubung ke **jaringan Wi-Fi yang SAMA**.
-4. Cek alamat IP lokal laptop:
-   - Windows: buka CMD / PowerShell, ketik `ipconfig`, lalu catat alamat **IPv4 Address** (misalnya `192.168.1.15`).
-5. Jalankan aplikasi dengan mengarahkan `API_BASE_URL` ke IP tersebut:
+Ringkasnya: backend jalan di `0.0.0.0:8000`, HP membuka `http://<IP-PC>:8000`,
+lalu aplikasi di-build dengan `--dart-define=API_BASE_URL=http://<IP-PC>:8000`.
+
+1. Jalankan backend dengan host `0.0.0.0` (lihat Fase 1 Langkah 7) dan biarkan
+   jendela terminalnya tetap terbuka.
+2. Pastikan HP dan PC terhubung ke **Wi-Fi/hotspot yang sama**.
+3. Cek **IPv4 Address** PC dengan `ipconfig` (mis. `192.168.1.15`).
+4. Izinkan port `8000` di Windows Firewall (centang *Private networks* saat
+   popup muncul, atau buat inbound rule TCP 8000).
+5. Tes dari browser HP: `http://192.168.1.15:8000/api/v1/health` harus
+   mengembalikan JSON `{"status":"ok", ...}`.
+6. Jalankan aplikasi tanpa kabel, pilih salah satu:
+   - **Wireless debugging** (Android 11+, mendukung hot reload):
+     `adb pair <IP-HP>:<port-pairing> <kode>` → `adb connect <IP-HP>:<port>`,
+     lalu `flutter run --dart-define=API_BASE_URL=http://192.168.1.15:8000`.
+   - **Build APK lalu kirim ke HP** (tanpa adb):
+     `flutter build apk --release --dart-define=API_BASE_URL=http://192.168.1.15:8000`
+     lalu kirim `mobile/build/app/outputs/flutter-apk/app-release.apk` ke HP
+     (Google Drive/WhatsApp/`python -m http.server`) dan install.
+
+> Panduan langkah demi langkah lengkap, termasuk troubleshooting per gejala,
+> ada di **[`mobile/README.md`](mobile/README.md)**.
+
+> IP PC bisa berubah setiap konek ulang. Kalau aplikasi timeout, cek `ipconfig`
+> dan build/run ulang dengan IP baru — `API_BASE_URL` di-*compile* saat build.
+
+#### D. Pada Chrome (Web, untuk demo cepat)
+
+Aplikasi juga bisa dijalankan langsung di browser tanpa emulator. Backend harus tetap berjalan di port `8000`:
 
 ```bash
-flutter run --dart-define=API_BASE_URL=http://192.168.1.15:8000
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
 ```
 
-#### C. Build APK Release (Instalasi Manual)
-
-Untuk menghasilkan file APK siap pasang di perangkat Android:
-
-```bash
-flutter build apk --release --dart-define=API_BASE_URL=http://IP_SERVER_KAMU:8000
-```
-File APK akan berada di `mobile/build/app/outputs/flutter-apk/app-release.apk`.
+Saat memilih foto, browser akan membuka dialog file (atau kamera jika didukung).
 
 ---
 

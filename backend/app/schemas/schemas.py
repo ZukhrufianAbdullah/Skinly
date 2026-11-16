@@ -5,8 +5,18 @@ Menggunakan Pydantic v2
 from __future__ import annotations
 from datetime import datetime
 from typing import Optional, Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 from enum import Enum
+
+from app.schemas.datetime_utils import serialize_utc
+
+
+class UTCModel(BaseModel):
+    """Base model yang selalu mengirim timestamp sebagai UTC ber-offset ("Z")."""
+
+    @field_serializer("created_at", check_fields=False)
+    def _serialize_created_at(self, value: datetime) -> str:
+        return serialize_utc(value)
 
 
 # ============================================================
@@ -46,11 +56,17 @@ class ErrorResponse(BaseModel):
 class AnalyzeResponse(BaseModel):
     skin_type: SkinTypeEnum
     confidence: float = Field(..., ge=0.0, le=1.0)
-    probabilities: dict[str, float]
+    probabilities: dict[str, float]   # 4 key: combination, dry, normal, oily
     description: str
-    routine: dict[str, list[str]]  # {"morning": [...], "night": [...]}
-    products: list[str]
-    demo: bool = False              # True jika model belum ada (mode demo)
+    # {"morning": [{step, name, detail}, ...], "night": [...]}
+    routine: dict[str, list[dict[str, Any]]]
+    products: list[dict[str, Any]]   # [{name, note}, ...]
+    demo: bool = False               # True jika model belum ada (mode demo)
+    # --- rule-v3 (opsional supaya klien lama tetap kompatibel) ---
+    raw_probabilities: dict[str, float] = Field(default_factory=dict)
+    combination_score: float = Field(0.0, ge=0.0, le=1.0)
+    is_combination: bool = False
+    rule_version: str = "rule-v3"
 
 
 # ============================================================
@@ -64,7 +80,7 @@ class ScanCreateRequest(BaseModel):
     image_path: Optional[str] = None
 
 
-class ScanResponse(BaseModel):
+class ScanResponse(UTCModel):
     id: str
     user_id: Optional[str] = None
     device_id: Optional[str] = None
@@ -75,6 +91,12 @@ class ScanResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ScanDetailResponse(ScanResponse):
+    description: Optional[str] = None
+    routine: Optional[dict[str, list[dict[str, Any]]]] = None
+    products: Optional[list[dict[str, Any]]] = None
 
 
 class ScanListResponse(BaseModel):
@@ -88,7 +110,7 @@ class ScanListResponse(BaseModel):
 # Articles
 # ============================================================
 
-class ArticleListItem(BaseModel):
+class ArticleListItem(UTCModel):
     id: str
     title: str
     category: ArticleCategoryEnum
@@ -100,7 +122,7 @@ class ArticleListItem(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ArticleDetail(BaseModel):
+class ArticleDetail(UTCModel):
     id: str
     title: str
     category: ArticleCategoryEnum
@@ -149,7 +171,7 @@ class FeedbackCreateRequest(BaseModel):
         return v
 
 
-class FeedbackResponse(BaseModel):
+class FeedbackResponse(UTCModel):
     id: str
     user_id: Optional[str] = None
     device_id: Optional[str] = None

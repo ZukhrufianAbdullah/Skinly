@@ -78,7 +78,6 @@ class _SkinlyMascotState extends State<SkinlyMascot> with SingleTickerProviderSt
         assetPath = 'assets/images/maskot_full.png';
         break;
       case SkinlyMascotVariant.standard:
-      default:
         assetPath = 'assets/images/maskot_skinly.png';
         break;
     }

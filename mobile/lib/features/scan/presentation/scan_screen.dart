@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -18,16 +19,169 @@ class ScanScreen extends StatefulWidget {
   State<ScanScreen> createState() => _ScanScreenState();
 }
 
-class _ScanScreenState extends State<ScanScreen> {
+class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
+  CameraController? _cameraController;
+  List<CameraDescription> _cameras = [];
+  int _cameraIndex = 0;
+  bool _isCameraInitialized = false;
+  bool _isCameraError = false;
+  String? _cameraErrorMessage;
+
   final _picker = ImagePicker();
   final _repo = ScanRepository();
   bool _isLoading = false;
 
-  Future<void> _pickFromCamera() async {
-    final status = await Permission.camera.request();
-    if (!status.isGranted) {
-      _showPermissionDenied('kamera');
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initCamera();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final CameraController? controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
       return;
+    }
+
+    if (state == AppLifecycleState.inactive) {
+      controller.dispose();
+      if (mounted) setState(() => _isCameraInitialized = false);
+    } else if (state == AppLifecycleState.resumed) {
+      if (_cameras.isNotEmpty) {
+        _startCamera(_cameras[_cameraIndex]);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cameraController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initCamera() async {
+    setState(() {
+      _isCameraError = false;
+      _cameraErrorMessage = null;
+    });
+
+    if (!kIsWeb) {
+      final status = await Permission.camera.request();
+      if (!status.isGranted) {
+        if (mounted) {
+          setState(() {
+            _isCameraError = true;
+            _cameraErrorMessage = 'Izin kamera diperlukan untuk memindai wajah.';
+          });
+        }
+        _showPermissionDenied('kamera');
+        return;
+      }
+    }
+
+    try {
+      _cameras = await availableCameras();
+      if (_cameras.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _isCameraError = true;
+            _cameraErrorMessage = 'Kamera tidak ditemukan di perangkat ini.';
+          });
+        }
+        return;
+      }
+
+      // Utamakan kamera depan untuk scan wajah
+      int frontIndex = _cameras.indexWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+      );
+      _cameraIndex = frontIndex != -1 ? frontIndex : 0;
+
+      await _startCamera(_cameras[_cameraIndex]);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isCameraError = true;
+          _cameraErrorMessage = 'Gagal mengakses kamera: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _startCamera(CameraDescription camera) async {
+    final controller = CameraController(
+      camera,
+      ResolutionPreset.high,
+      enableAudio: false,
+      imageFormatGroup: ImageFormatGroup.jpeg,
+    );
+
+    _cameraController = controller;
+
+    try {
+      await controller.initialize();
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = true;
+          _isCameraError = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = false;
+          _isCameraError = true;
+          _cameraErrorMessage = 'Gagal memulai preview kamera: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _switchCamera() async {
+    if (_cameras.length <= 1) return;
+    _cameraIndex = (_cameraIndex + 1) % _cameras.length;
+    setState(() => _isCameraInitialized = false);
+    await _cameraController?.dispose();
+    await _startCamera(_cameras[_cameraIndex]);
+  }
+
+  Future<void> _takePhoto() async {
+    if (_isLoading) return;
+
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
+      // Fallback jika kamera in-app belum siap
+      await _pickFromCamera();
+      return;
+    }
+
+    if (controller.value.isTakingPicture) return;
+
+    try {
+      final XFile photo = await controller.takePicture();
+      await _analyzeImage(photo);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.error,
+            content: Text('Gagal mengambil gambar: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickFromCamera() async {
+    if (!kIsWeb) {
+      final status = await Permission.camera.request();
+      if (!status.isGranted) {
+        _showPermissionDenied('kamera');
+        return;
+      }
     }
     final file = await _picker.pickImage(
       source: ImageSource.camera,
@@ -36,7 +190,7 @@ class _ScanScreenState extends State<ScanScreen> {
       imageQuality: 90,
       preferredCameraDevice: CameraDevice.front,
     );
-    if (file != null) _analyzeImage(File(file.path));
+    if (file != null) _analyzeImage(file);
   }
 
   Future<void> _pickFromGallery() async {
@@ -46,7 +200,7 @@ class _ScanScreenState extends State<ScanScreen> {
       maxHeight: 1280,
       imageQuality: 90,
     );
-    if (file != null) _analyzeImage(File(file.path));
+    if (file != null) _analyzeImage(file);
   }
 
   void _showPermissionDenied(String type) {
@@ -77,7 +231,7 @@ class _ScanScreenState extends State<ScanScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                'Skinly membutuhkan izin akses $type agar dapat memotret wajahmu untuk dianalisis jenis kulitnya.',
+                'Skinly membutuhkan izin akses $type agar dapat memotret wajahmu langsung di aplikasi untuk dianalisis jenis kulitnya.',
                 style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary),
                 textAlign: TextAlign.center,
               ),
@@ -145,6 +299,37 @@ class _ScanScreenState extends State<ScanScreen> {
                 style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textPrimary),
                 textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.neutral100,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tips agar foto diterima:',
+                      style: AppTextStyles.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '• Hadapkan wajah lurus ke kamera\n'
+                      '• Pastikan cahaya cukup, hindari backlight\n'
+                      '• Lepas masker/kacamata hitam\n'
+                      '• Pegang kamera stabil dan tunggu fokus',
+                      style: AppTextStyles.caption.copyWith(
+                        color: AppColors.textSecondary,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 24),
               SkinlyButton(
                 text: 'Ambil Foto Ulang',
@@ -153,7 +338,6 @@ class _ScanScreenState extends State<ScanScreen> {
                 height: 48,
                 onPressed: () {
                   Navigator.pop(ctx);
-                  _pickFromCamera();
                 },
               ),
             ],
@@ -163,17 +347,18 @@ class _ScanScreenState extends State<ScanScreen> {
     );
   }
 
-  Future<void> _analyzeImage(File imageFile) async {
+  Future<void> _analyzeImage(XFile imageFile) async {
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final result = await _repo.analyze(imageFile);
+      final bytes = await imageFile.readAsBytes();
+      final result = await _repo.analyze(bytes, filename: imageFile.name);
       if (mounted) {
         context.push(AppRoutes.result, extra: {
           'result': result,
-          'imageFile': imageFile,
+          'imageBytes': bytes,
         });
       }
     } catch (e) {
@@ -211,6 +396,12 @@ class _ScanScreenState extends State<ScanScreen> {
                         style: AppTextStyles.h2.copyWith(color: Colors.white, fontSize: 20),
                       ),
                       const Spacer(),
+                      if (_cameras.length > 1)
+                        IconButton(
+                          onPressed: _switchCamera,
+                          icon: const Icon(Icons.flip_camera_ios_rounded, color: Colors.white),
+                          tooltip: 'Ganti Kamera',
+                        ),
                       IconButton(
                         onPressed: () => context.push(AppRoutes.scanExample),
                         icon: const Icon(Icons.help_outline_rounded, color: Colors.white),
@@ -220,50 +411,118 @@ class _ScanScreenState extends State<ScanScreen> {
                   ),
                 ),
 
-                // Area Viewfinder Bingkai Oval
+                // Area Viewfinder Bingkai Oval dengan Kamera Langsung
                 Expanded(
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      // Viewfinder Container
-                      Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(28),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(28),
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.face_retouching_natural_rounded,
-                                    size: 90,
-                                    color: Colors.white.withOpacity(0.25),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(28),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(28),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        alignment: Alignment.center,
+                        children: [
+                          // 1. Live Camera Preview Feed
+                          if (_isCameraInitialized && _cameraController != null)
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final previewSize = _cameraController!.value.previewSize;
+                                final double width = previewSize != null ? previewSize.height : constraints.maxWidth;
+                                final double height = previewSize != null ? previewSize.width : constraints.maxHeight;
+
+                                return SizedBox.expand(
+                                  child: FittedBox(
+                                    fit: BoxFit.cover,
+                                    child: SizedBox(
+                                      width: width,
+                                      height: height,
+                                      child: CameraPreview(_cameraController!),
+                                    ),
                                   ),
-                                  const SizedBox(height: 16),
+                                );
+                              },
+                            )
+                          else if (_isCameraError)
+                            Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.videocam_off_rounded, size: 54, color: Colors.white54),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      _cameraErrorMessage ?? 'Kamera tidak dapat diakses',
+                                      style: AppTextStyles.bodyMedium.copyWith(color: Colors.white70),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    SkinlyButton(
+                                      text: 'Coba Lagi',
+                                      variant: SkinlyButtonVariant.primaryTeal,
+                                      height: 42,
+                                      onPressed: _initCamera,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const CircularProgressIndicator(color: AppColors.primary),
+                                  const SizedBox(height: 14),
                                   Text(
-                                    'Posisikan wajah di dalam bingkai oval',
-                                    style: AppTextStyles.bodyMedium.copyWith(
-                                      color: Colors.white.withOpacity(0.7),
+                                    'Menyiapkan kamera...',
+                                    style: AppTextStyles.caption.copyWith(color: Colors.white70),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                          // 2. Oval Overlay Painter di atas preview kamera
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                size: const Size(double.infinity, double.infinity),
+                                painter: _FigmaOvalOverlayPainter(),
+                              ),
+                            ),
+                          ),
+
+                          // 3. Panduan Posisi Wajah
+                          Positioned(
+                            bottom: 16,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.55),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.face_retouching_natural_rounded, color: Colors.white, size: 16),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Posisikan wajahmu di dalam oval',
+                                    style: AppTextStyles.caption.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ],
                               ),
-                              // Oval Overlay Painter
-                              CustomPaint(
-                                size: const Size(double.infinity, double.infinity),
-                                painter: _FigmaOvalOverlayPainter(),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
 
@@ -319,9 +578,9 @@ class _ScanScreenState extends State<ScanScreen> {
                         ),
                       ),
 
-                      // Tombol Shutter Kamera Utama
+                      // Tombol Shutter Kamera Utama (Pink)
                       GestureDetector(
-                        onTap: _isLoading ? null : _pickFromCamera,
+                        onTap: _isLoading ? null : _takePhoto,
                         child: Container(
                           width: 78,
                           height: 78,

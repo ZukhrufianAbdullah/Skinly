@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
@@ -24,7 +24,7 @@ class _ResultScreenState extends State<ResultScreen>
   bool _saved = false;
 
   ScanResult get result => widget.analysisData['result'] as ScanResult;
-  File? get imageFile => widget.analysisData['imageFile'] as File?;
+  Uint8List? get imageBytes => widget.analysisData['imageBytes'] as Uint8List?;
 
   @override
   void initState() {
@@ -177,8 +177,8 @@ class _ResultScreenState extends State<ResultScreen>
                           ],
                         ),
                         child: ClipOval(
-                          child: imageFile != null
-                              ? Image.file(imageFile!, fit: BoxFit.cover)
+                          child: imageBytes != null
+                              ? Image.memory(imageBytes!, fit: BoxFit.cover)
                               : Container(
                                   color: AppColors.primaryBackground,
                                   child: const Icon(
@@ -225,7 +225,7 @@ class _ResultScreenState extends State<ResultScreen>
                     ),
                     const SizedBox(height: 20),
 
-                    // 4 Bar Probabilitas Jenis Kulit
+                    // Bar Probabilitas 4 Jenis Kulit
                     _buildProbabilityBars(),
                   ],
                 ),
@@ -394,7 +394,7 @@ class _ResultScreenState extends State<ResultScreen>
   }
 
   Widget _buildProbabilityBars() {
-    final probs = result.probabilities;
+    final probs = result.primaryProbabilities;
     final keys = ['normal', 'oily', 'dry', 'combination'];
     final labels = {
       'normal': 'Normal',

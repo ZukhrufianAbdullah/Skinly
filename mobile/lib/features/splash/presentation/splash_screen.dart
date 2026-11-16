@@ -50,15 +50,36 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     // Beri waktu animasi splash berjalan
     await Future.delayed(const Duration(milliseconds: 1400));
 
-    // Periksa status auth
-    await ref.read(authControllerProvider.notifier).checkAuthStatus();
-    final authState = ref.read(authControllerProvider);
-    final storage = ref.read(authStorageProvider);
-    final hasSeenOnboarding = await storage.hasSeenOnboarding();
+    // Periksa status auth. Jika storage/jaringan bermasalah, jangan sampai
+    // splash menggantung: perlakukan sebagai belum login.
+    var isAuthenticated = false;
+    try {
+      await ref
+          .read(authControllerProvider.notifier)
+          .checkAuthStatus()
+          .timeout(const Duration(seconds: 6));
+      isAuthenticated = ref.read(authControllerProvider).isAuthenticated;
+    } catch (e) {
+      debugPrint('Splash: cek auth gagal — $e');
+      isAuthenticated = false;
+    }
+
+    // Flag onboarding juga dibaca secara defensif (plugin storage bisa gagal
+    // pada build yang tidak bersih).
+    var hasSeenOnboarding = false;
+    try {
+      hasSeenOnboarding = await ref
+          .read(authStorageProvider)
+          .hasSeenOnboarding()
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('Splash: baca flag onboarding gagal — $e');
+      hasSeenOnboarding = false;
+    }
 
     if (!mounted) return;
 
-    if (authState.isAuthenticated) {
+    if (isAuthenticated) {
       context.go(AppRoutes.home);
     } else if (!hasSeenOnboarding) {
       context.go(AppRoutes.onboarding);

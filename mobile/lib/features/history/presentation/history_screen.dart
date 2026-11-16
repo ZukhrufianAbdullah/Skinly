@@ -232,7 +232,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               child: SkinlyCard(
                 padding: const EdgeInsets.all(16),
                 borderRadius: 22,
-                onTap: () => context.push('/history/${item.id}'),
+                onTap: () => context.push('/history/${item.id}', extra: item),
                 child: Row(
                   children: [
                     Container(

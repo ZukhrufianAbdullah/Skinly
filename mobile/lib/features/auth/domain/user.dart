@@ -1,3 +1,5 @@
+import '../../../core/utils/date_parser.dart';
+
 class User {
   final String id;
   final String username;
@@ -19,7 +21,7 @@ class User {
       username: json['username'] as String? ?? '',
       name: json['name'] as String,
       email: json['email'] as String,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: parseServerDate(json['created_at'] as String),
     );
   }
 
@@ -29,7 +31,7 @@ class User {
       'username': username,
       'name': name,
       'email': email,
-      'created_at': createdAt.toIso8601String(),
+      'created_at': createdAt.toUtc().toIso8601String(),
     };
   }
 }
